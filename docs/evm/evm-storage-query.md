@@ -1,6 +1,8 @@
 # EVM 存储与查询架构
 
 > 相关文档：[功能概览](evm-overview.md) | [交易生命周期](evm-tx-lifecycle.md)
+>
+> 参考：[DeepWiki: sei-chain EVM](https://deepwiki.com/search/seichainevm_2d0b56ca-db3b-40cd-811d-8fae3712e850)
 
 ## 1. EVM 数据存储架构
 

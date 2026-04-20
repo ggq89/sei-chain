@@ -1,6 +1,8 @@
 # EVM 交易生命周期
 
 > 相关文档：[功能概览](evm-overview.md) | [存储与查询架构](evm-storage-query.md)
+>
+> 参考：[DeepWiki: sei-chain EVM](https://deepwiki.com/search/seichainevm_2d0b56ca-db3b-40cd-811d-8fae3712e850)
 
 ## 1. 交易排序与执行流程
 
@@ -8,24 +10,60 @@ EVM 交易的完整生命周期：
 
 1. 用户通过 JSON-RPC 发送 `eth_sendRawTransaction`
 2. 原始以太坊交易被包装为 Cosmos 的 `MsgEVMTransaction` 消息
-3. 经过 **Tendermint/CometBFT 共识层**排序，进入区块
-4. 在 `DeliverTx` 阶段路由到 `x/evm/keeper` 的 `EVMTransaction()` 执行
+3. 进入 **Tendermint Mempool**，经过 `CheckTx`（ante handler 验证链）
+4. 经过 **Tendermint/CometBFT 共识层**排序，进入区块
+5. 在 `FinalizeBlock` → `ProcessBlock` 阶段，通过 OCC 并行或顺序执行
+6. 路由到 `x/evm/keeper/msg_server.go` 的 `EVMTransaction()` → `applyEVMMessage()` 执行
 
 ```mermaid
-sequenceDiagram
-    participant User as 用户/DApp
-    participant RPC as evmrpc (JSON-RPC)
-    participant TM as Tendermint 共识层
-    participant Ante as ante/ 路由
-    participant EVM as x/evm/keeper
+flowchart TD
+    A["用户提交 EVM tx\n(eth_sendRawTransaction)"] --> B["Tendermint Mempool\n(CheckTx)"]
+    B --> C["EVMPreprocessDecorator\n解码签名、推导地址"]
+    C --> D["EVMFeeCheckDecorator\n计算 priority = effectiveGasPrice / normalizer"]
+    D --> E["EVMSigVerifyDecorator\n验证 nonce、ChainID"]
+    E --> F["TxPriorityQueue 排序\n按 priority 排序，同地址按 nonce 顺序"]
+    F --> G["Tendermint 共识\n区块提案 + 投票"]
+    G --> H["FinalizeBlock → ProcessBlock"]
+    H --> I{OCC 是否启用?}
+    I -->|"是（默认）"| J["ProcessTXsWithOCC\n多 worker 并行执行"]
+    I -->|否| K["ProcessBlockSynchronous\n顺序执行"]
+    J --> L["EVMTransaction msg_server\napplyEVMMessage"]
+    K --> L
+    L --> M["EndBlock\n汇总 bloom、结算 coinbase、调整 baseFee"]
+```
 
-    User->>RPC: eth_sendRawTransaction
-    RPC->>TM: 包装为 MsgEVMTransaction
-    TM->>TM: 共识排序，打包进区块
-    TM->>Ante: DeliverTx
-    Ante->>EVM: EVMTransaction()
-    EVM->>EVM: go-ethereum EVM 解释器执行
-    EVM-->>TM: 返回执行结果
+### 1.1 Ante Handler 验证链（`x/evm/ante/`）
+
+EVM 交易在 `CheckTx` 和 `DeliverTx` 阶段经过三个串联的 Decorator：
+
+| 顺序 | Decorator | 文件 | 职责 |
+|------|-----------|------|------|
+| 1 | `EVMPreprocessDecorator` | `preprocess.go` | 解码 RLP 签名、推导 EVM 发送者地址、建立 Sei↔EVM 地址关联 |
+| 2 | `EVMFeeCheckDecorator` | `fee.go` | 验证 EIP-1559 费用（`GasFeeCap ≥ BaseFee`），检查余额充足，计算 `priority = EffectiveGasPrice / PriorityNormalizer` |
+| 3 | `EVMSigVerifyDecorator` | `sig.go` | 验证 ChainID、Nonce，管理 pending 交易（future nonce 进 pending 队列） |
+
+### 1.2 OCC 并行执行
+
+Sei 在执行阶段使用 **OCC（Optimistic Concurrency Control）** 乐观并行化：
+
+- 默认启用，多个 worker goroutine 并行执行区块内的所有交易（包括 EVM 和 Cosmos 交易）
+- 如果检测到读写冲突（`ErrReadEstimate`），自动**回滚并重试**
+- 最终结果与顺序执行**完全等价**（确定性保证）
+- 代码入口：`app/app.go` → `ExecuteTxsConcurrently`
+
+### 1.3 EVM 执行入口
+
+每笔 EVM 交易最终在 `x/evm/keeper/msg_server.go` 中执行：
+
+```
+msgServer.EVMTransaction()
+  → 解码 MsgEVMTransaction
+  → 构建 go-ethereum core.Message
+  → applyEVMMessage()
+    → vm.NewEVM(blockCtx, stateDB, chainConfig)
+    → evm.Call() 或 evm.Create()
+  → stateDB.Finalize()（将状态写入 Cosmos KV Store）
+  → WriteReceipt()（写入 transient receipt）
 ```
 
 ---

@@ -1,6 +1,8 @@
 # EVM Block 独立出块方案设计
 
 > 相关文档：[功能概览](evm-overview.md) | [交易生命周期](evm-tx-lifecycle.md) | [存储与查询架构](evm-storage-query.md)
+>
+> 参考：[DeepWiki: sei-chain EVM](https://deepwiki.com/search/seichainevm_2d0b56ca-db3b-40cd-811d-8fae3712e850)
 
 ## 1. 问题定义
 
@@ -151,6 +153,16 @@ func (m *WatermarkManager) ResolveHeight(ctx context.Context, blockNrOrHash rpc.
 
 `eth_getLogs` 的块范围参数直接映射为 Tendermint 高度范围进行遍历查询。
 
+### 2.11 交易过滤（filterTransactions）
+
+**文件**：`evmrpc/utils.go` — `filterTransactions()`
+
+```go
+receipt.BlockNumber != uint64(block.Block.Height)
+```
+
+用于过滤无效 receipt，直接将 receipt 的 BlockNumber 与 Tendermint block Height 比较。
+
 ### 耦合点汇总
 
 | 耦合点 | 文件 | 关键假设 |
@@ -165,6 +177,7 @@ func (m *WatermarkManager) ResolveHeight(ctx context.Context, blockNrOrHash rpc.
 | eth_blockNumber | `evmrpc/info.go` | 返回 Tendermint 高度 |
 | WatermarkManager | `evmrpc/watermark_manager.go` | 块号 = Sei 高度 |
 | 日志过滤 | `evmrpc/filter.go` | 块范围 = Sei 高度范围 |
+| 交易过滤 | `evmrpc/utils.go` | `receipt.BlockNumber == block.Block.Height` |
 
 ---
 

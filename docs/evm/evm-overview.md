@@ -3,6 +3,8 @@
 Sei 的 EVM 是**深度集成**方案——在 Cosmos SDK 存储层上运行 go-ethereum 的 EVM 解释器，实现 CosmWasm 与 EVM 的完全互操作。
 
 > 相关文档：[交易生命周期](evm-tx-lifecycle.md) | [存储与查询架构](evm-storage-query.md)
+>
+> 参考：[DeepWiki: sei-chain EVM](https://deepwiki.com/search/seichainevm_2d0b56ca-db3b-40cd-811d-8fae3712e850)
 
 ## 架构简图
 
@@ -52,6 +54,8 @@ graph TD
 - **一个区块序列**：Tendermint blocks，EVM 和 Cosmos 交易混在同一个区块中
 - **一个出块节奏**：Tendermint 的出块间隔（Sei 主网约 400ms）
 - **一个状态树**：所有模块共享 SeiDB，EVM 状态只是其中 store key = `"evm"` 的一个子树
+
+> **pacific-1 主网**：EVM 功能在 block **79123881** 激活。`ValidateEVMBlockHeight` 会拒绝查询该高度以下的 EVM 区块。EVM 块号不会从 0 重新计数——"EVM 创世块"就是 Sei 的第 79123881 块。
 
 ---
 
@@ -120,8 +124,10 @@ Cosmos SDK 的 EVM 模块，将完整的以太坊虚拟机集成到 Sei 链中�
 ### 关键特性
 
 - **即时最终性**：无 `pending` 概念，`pending` 等同于 `latest`
-- **`sei_*` 端点**：可见 EVM + Cosmos synthetic receipt 交易
-- **`sei2_*` 端点**：区块中包含 bank transfer
+- **三个 RPC 命名空间**：
+  - `eth`：标准以太坊 JSON-RPC（默认）
+  - `sei`：扩展命名空间，可见 EVM + Cosmos synthetic receipt 交易
+  - `sei2`：扩展命名空间，区块中额外包含 bank transfer
 - **Legacy API 网关**：通过 `app.toml` 白名单控制，已标记为废弃
 - **Debug tracing**：忠实重放历史执行
 - **不支持**：uncle/trie/PoW/blob 等以太坊特性
@@ -134,21 +140,21 @@ Cosmos SDK 的 EVM 模块，将完整的以太坊虚拟机集成到 Sei 链中�
 
 ### 注册的预编译
 
-| 预编译 | 路径 | 说明 |
-|--------|------|------|
-| **Bank** | `precompiles/bank/` | EVM 中访问 Cosmos bank 模块（转账、余额查询） |
-| **Staking** | `precompiles/staking/` | EVM 中质押/解质押/重委托操作 |
-| **Gov** | `precompiles/gov/` | EVM 中提案投票 |
-| **Distribution** | `precompiles/distribution/` | EVM 中领取质押奖励 |
-| **Oracle** | `precompiles/oracle/` | EVM 中查询预言机数据 |
-| **IBC** | `precompiles/ibc/` | EVM 中发起 IBC 跨链转账 |
-| **Wasmd** | `precompiles/wasmd/` | EVM 中调用 CosmWasm 合约 |
-| **Addr** | `precompiles/addr/` | Sei ↔ EVM 地址转换 |
-| **Pointer** | `precompiles/pointer/` | 注册/管理 pointer 合约 |
-| **PointerView** | `precompiles/pointerview/` | 查询 pointer 合约信息 |
-| **JSON** | `precompiles/json/` | EVM 中的 JSON 解析工具 |
-| **P256** | `precompiles/p256/` | P-256 (secp256r1) 签名验证 |
-| **Solo** | `precompiles/solo/` | Solo 预编译 |
+| 预编译 | 路径 | 地址 | 说明 |
+|--------|------|------|------|
+| **Bank** | `precompiles/bank/` | `0x...1001` | EVM 中访问 Cosmos bank 模块（转账、余额查询） |
+| **Staking** | `precompiles/staking/` | `0x...1005` | EVM 中质押/解质押/重委托操作 |
+| **Gov** | `precompiles/gov/` | `0x...1006` | EVM 中提案投票 |
+| **Distribution** | `precompiles/distribution/` | `0x...1007` | EVM 中领取质押奖励 |
+| **Oracle** | `precompiles/oracle/` | `0x...1008` | EVM 中查询预言机数据 |
+| **IBC** | `precompiles/ibc/` | `0x...1009` | EVM 中发起 IBC 跨链转账 |
+| **Wasmd** | `precompiles/wasmd/` | `0x...1002` | EVM 中调用 CosmWasm 合约 |
+| **JSON** | `precompiles/json/` | `0x...1003` | EVM 中的 JSON 解析工具 |
+| **Addr** | `precompiles/addr/` | `0x...1004` | Sei ↔ EVM 地址转换 |
+| **Pointer** | `precompiles/pointer/` | `0x...100B` | 注册/管理 pointer 合约 |
+| **PointerView** | `precompiles/pointerview/` | — | 查询 pointer 合约信息 |
+| **P256** | `precompiles/p256/` | — | P-256 (secp256r1) 签名验证 |
+| **Solo** | `precompiles/solo/` | — | Solo 预编译 |
 
 ### 架构模式
 
