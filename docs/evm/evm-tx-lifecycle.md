@@ -34,13 +34,16 @@ flowchart TD
 
 ### 1.1 Ante Handler 验证链（`x/evm/ante/`）
 
-EVM 交易在 `CheckTx` 和 `DeliverTx` 阶段经过三个串联的 Decorator：
+EVM 交易在 `CheckTx` 和 `DeliverTx` 阶段经过 **6 个**串联的 Decorator（定义在 `app/ante.go`）：
 
 | 顺序 | Decorator | 文件 | 职责 |
 |------|-----------|------|------|
-| 1 | `EVMPreprocessDecorator` | `preprocess.go` | 解码 RLP 签名、推导 EVM 发送者地址、建立 Sei↔EVM 地址关联 |
-| 2 | `EVMFeeCheckDecorator` | `fee.go` | 验证 EIP-1559 费用（`GasFeeCap ≥ BaseFee`），检查余额充足，计算 `priority = EffectiveGasPrice / PriorityNormalizer` |
-| 3 | `EVMSigVerifyDecorator` | `sig.go` | 验证 ChainID、Nonce，管理 pending 交易（future nonce 进 pending 队列） |
+| 1 | `EVMNoCosmosFieldsDecorator` | `no_cosmos_fields.go` | 拒绝 EVM 交易中携带的 Cosmos 特有字段 |
+| 2 | `EVMPreprocessDecorator` | `preprocess.go` | 解码 RLP 签名、推导 EVM 发送者地址、建立 Sei↔EVM 地址关联 |
+| 3 | `BasicDecorator` | `basic.go` | 基本验证（交易格式、大小等） |
+| 4 | `EVMFeeCheckDecorator` | `fee.go` | 验证 EIP-1559 费用（`GasFeeCap ≥ BaseFee`），检查余额充足，计算 `priority = EffectiveGasPrice / PriorityNormalizer` |
+| 5 | `EVMSigVerifyDecorator` | `sig.go` | 验证 ChainID、Nonce，管理 pending 交易（future nonce 进 pending 队列） |
+| 6 | `GasDecorator` | `gas.go` | Gas 计量与限制 |
 
 ### 1.2 OCC 并行执行
 
