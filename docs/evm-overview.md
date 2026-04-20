@@ -468,3 +468,47 @@ flowchart TD
 | **Future nonce 处理** | nonce 有 gap 的交易进 pendingTxs，前置 nonce 就位后自动激活 |
 | **出块优先** | EVM 交易排在 Cosmos 交易之前 |
 | **优先级计算** | `priority = EffectiveGasPrice / PriorityNormalizer` |
+
+---
+
+## 10. EVM Block 与 Sei Chain Block 的关系
+
+### 10.1 核心结论：完全一致，没有分开
+
+EVM **不是**独立的链或独立的区块生产者，它只是 Cosmos SDK 模块中嵌入的执行引擎。EVM block 和 Sei chain block 是**同一个东西**。
+
+| 维度 | 说明 |
+|------|------|
+| **区块高度** | EVM block number **等于** Tendermint block height，一一对应 |
+| **区块哈希** | EVM block hash **等于** Tendermint BlockID.Hash |
+| **出块节奏** | 完全跟随 Tendermint 共识出块，没有独立的 EVM 出块周期 |
+| **区块存储** | EVM 没有独立的区块存储，查询时从 Tendermint 区块实时转换 |
+| **交易排序** | EVM TX 和 Cosmos TX 在同一个 Tendermint 区块中排序（EVM TX 排在前面） |
+
+代码依据（`evmrpc/block.go`）：
+
+```go
+number := big.NewInt(block.Block.Height)                        // EVM block number = TM block height
+blockhash := common.HexToHash(block.BlockID.Hash.String())      // EVM block hash = TM block hash
+miner := common.HexToAddress(block.Block.ProposerAddress.String()) // miner = TM proposer
+```
+
+### 10.2 执行模型
+
+Sei 的 EVM 不是像 Optimism 或 Arbitrum 那样的独立执行层/Rollup，而是嵌入在 Cosmos 应用层中：
+
+```mermaid
+graph TD
+    TM["Tendermint 共识"] --> Block["一个区块 (height=N)"]
+    Block --> EVMTxs["EVM TXs（排在前面）"]
+    Block --> CosTxs["Cosmos TXs（排在后面）"]
+    EVMTxs --> EVMKeeper["x/evm/keeper\n(go-ethereum EVM)"]
+    CosTxs --> CosMods["其他 Cosmos 模块\n(bank/staking/...)"]
+    EVMKeeper --> Store["同一个 Cosmos KV Store (SeiDB)"]
+    CosMods --> Store
+```
+
+- **一个共识**：Tendermint/CometBFT
+- **一个区块序列**：Tendermint blocks，EVM 和 Cosmos 交易混在同一个区块中
+- **一个出块节奏**：Tendermint 的出块间隔（Sei 主网约 400ms）
+- **一个状态树**：所有模块共享 SeiDB，EVM 状态只是其中 store key = `"evm"` 的一个子树
